@@ -1,0 +1,14 @@
+[
+  {
+    "type": "function",
+    "name": "placePrediction",
+    "stateMutability": "nonpayable",
+    "inputs": [
+      { "name": "marketId", "type": "uint256" },
+      { "name": "side", "type": "bool" },
+      { "name": "amount", "type": "uint256" }
+    ],
+    "outputs": []
+  }
+]
+

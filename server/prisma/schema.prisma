@@ -1,0 +1,941 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id             String        @id @default(uuid())
+  privyId        String?       @unique
+  address        String?       @unique
+  username       String?
+  email          String?       @unique
+  twitterId      String?       @unique
+  discordId      String?       @unique
+  role           String        @default("USER") // "USER", "ADMIN", "SUPERADMIN"
+  pts            Float         @default(0)
+  combo          Int           @default(0)    // 当前连胜次数
+  maxCombo       Int           @default(0)    // 历史最高连胜
+  multiplier     Float         @default(1.0)  // 当前奖励倍率
+  version        Int           @default(0)    // 乐观锁版本号
+  onChainBalance Float         @default(0) // 链上资产余额
+  totalWins      Int           @default(0)    // AI 对战总胜场
+  totalBattles   Int           @default(0)    // AI 对战总场次
+  referralCode   String        @unique @default(cuid()) // 用户的唯一邀请码
+  referrerId     String?       // 邀请人的 ID
+  referrer       User?         @relation("UserReferrals", fields: [referrerId], references: [id])
+  referrals      User[]        @relation("UserReferrals")
+  createdAt      DateTime      @default(now())
+  bets           Bet[]
+  battles        Battle[]
+  tasks          UserTask[]
+  transactions   Transaction[]
+  teamId         String?
+  team           Team?         @relation(fields: [teamId], references: [id])
+  seasonRankings SeasonRanking[]
+  tournamentParticipations TournamentParticipant[]
+  referralRewardsGiven    ReferralReward[] @relation("ReferrerRewards")
+  referralRewardsReceived ReferralReward[] @relation("RefereeRewards")
+  notifications           Notification[]
+  esportsBets             EsportsBet[]
+  footballBets            FootballBet[]
+  positions               Position[]
+  ammTrades               AMMTrade[]
+}
+
+model Team {
+  id          String   @id @default(uuid())
+  name        String   @unique
+  description String?
+  totalPts    Float    @default(0)
+  rank        Int?
+  leaderId    String?  // 队长用户ID
+  inviteCode  String?  @unique // 邀请码（创建时自动生成）
+  maxMembers  Int      @default(20) // 最大成员数
+  isPublic    Boolean  @default(true) // 是否公开（可被搜索加入）
+  createdAt   DateTime @default(now())
+  members     User[]
+}
+
+model Task {
+  id          String   @id @default(uuid())
+  title       String
+  description String
+  reward      Float
+  type        String   // e.g. "DAILY", "ONE_TIME"
+  goal        Int      // 目标数值，如 5 次预测
+  isDaily     Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @default(now()) @updatedAt
+  users       UserTask[]
+}
+
+model UserTask {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  taskId    String
+  task      Task     @relation(fields: [taskId], references: [id])
+  progress  Int      @default(0)
+  status    String   @default("IN_PROGRESS") // "IN_PROGRESS", "COMPLETED", "CLAIMED"
+  claimedAt DateTime?
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, taskId])
+}
+
+model Market {
+  id             String         @id @default(uuid())
+  title          String
+  category       String         @default("C10") // "C10" 或 "GOLD"
+  timeframe      String         @default("24H") // "10M", "30M", "1H", "12H", "24H"
+  status         MarketStatus   @default(ACTIVE)
+  endTime        DateTime
+  lockTime       DateTime?      // 锁定时间（endTime - 10秒，最后10秒禁止下注）
+  resolutionTime DateTime
+  poolSize       Float          @default(0)  // 总资金池（保留兼容）
+  yesPool        Float          @default(0)  // YES 资金池
+  noPool         Float          @default(0)  // NO 资金池
+  outcome        MarketOutcome?
+  aiPrediction   String?        @db.Text
+  startPrice     Decimal?       @db.Decimal(18, 6)  // T0 快照价格
+  endPrice       Decimal?       @db.Decimal(18, 6)  // T1 最终价格
+  createdAt      DateTime       @default(now())
+  bets           Bet[]
+  snapshots      MarketSnapshot[]
+}
+
+model Bet {
+  id            String        @id @default(uuid())
+  userId        String
+  user          User          @relation(fields: [userId], references: [id])
+  marketId      String
+  market        Market        @relation(fields: [marketId], references: [id])
+  position      MarketOutcome
+  amount        Float
+  timestamp     DateTime      @default(now())
+  claimed       Boolean       @default(false)
+  
+  // 动态赔率字段
+  lockedOdds    Float?        // 下注时锁定的赔率
+  potentialPayout Float?      // 潜在派彩金额 (amount * lockedOdds)
+  
+  // 智能结算字段
+  entryPrice    Float?        // 入场价格
+  exitPrice     Float?        // 出场价格
+  strategyId    String?       // 使用的策略 ID
+  stopLoss      Float?        // 止损比例 (%)
+  takeProfit    Float?        // 止盈比例 (%)
+  holdDuration  String?       // 持仓时间 "10M", "30M", "1H", "12H", "24H"
+  expiresAt     DateTime?     // 到期时间
+  status        BetStatus     @default(PENDING)
+  result        BetResult?    // 结算结果
+  payout        Float?        // 实际派彩金额
+  settledAt     DateTime?     // 结算时间
+  exitReason    String?       // 出场原因: "TAKE_PROFIT", "STOP_LOSS", "EXPIRED", "MANUAL"
+
+  @@index([userId, status, timestamp])
+  @@index([marketId, status])
+  @@index([status, expiresAt])
+}
+
+enum BetStatus {
+  PENDING     // 待结算
+  ACTIVE      // 持仓中
+  SETTLED     // 已结算
+  CANCELLED   // 已取消
+}
+
+enum BetResult {
+  WIN         // 盈利
+  LOSE        // 亏损
+  BREAKEVEN   // 保本
+}
+
+model Agent {
+  id              String   @id @default(uuid())
+  name            String
+  description     String
+  personality     String?  @db.Text // AI 性格描述
+  level           String   // e.g. "EASY", "MEDIUM", "HARD", "MASTER"
+  winRate         Float    @default(0)
+  
+  // 管理员可调整的难度参数
+  difficultyBias  Float    @default(0)    // 难度偏移 -0.5 到 +0.5
+  aggressiveness  Float    @default(0.5)  // 激进程度 0-1
+  trapFrequency   Float    @default(0.1)  // 诱空/诱多频率 0-1
+  isActive        Boolean  @default(true) // 是否启用
+  
+  battles     Battle[]
+}
+
+// 用户自定义策略
+model UserStrategy {
+  id             String   @id @default(uuid())
+  userId         String   
+  name           String   // 策略名称
+  riskLevel      String   @default("MEDIUM") // "LOW", "MEDIUM", "HIGH", "EXTREME"
+  trendFollowing Boolean  @default(true)    // 是否跟随趋势
+  volatilityPref String   @default("NORMAL") // "LOW", "NORMAL", "HIGH" (波动偏好)
+  holdDuration   String   @default("1H")     // "10M", "30M", "1H", "12H", "24H"
+  maxBetPercent  Float    @default(10)       // 最大下注比例 (% of balance)
+  stopLoss       Float?                       // 止损比例
+  takeProfit     Float?                       // 止盈比例
+  isActive       Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@unique([userId, name])
+  @@index([userId])
+}
+
+// AI 建议记录
+model AISuggestion {
+  id            String        @id @default(uuid())
+  userId        String
+  marketId      String
+  strategyId    String?       // 关联的用户策略
+  suggestion    MarketOutcome // YES (看涨) / NO (看跌)
+  confidence    Float         // 置信度 0-1
+  reasoning     String        @db.Text // 分析理由
+  followed      Boolean       @default(false) // 用户是否跟单
+  result        String?       // "WIN", "LOSE", "PENDING"
+  createdAt     DateTime      @default(now())
+
+  @@index([userId, createdAt])
+}
+
+model Battle {
+  id            String   @id @default(uuid())
+  userId        String
+  user          User     @relation(fields: [userId], references: [id])
+  agentId       String
+  agent         Agent    @relation(fields: [agentId], references: [id])
+  userPick      MarketOutcome
+  agentPick     MarketOutcome
+  amount        Float    @default(0) // 下注金额
+  reward        Float?   // 获胜后的实际奖励
+  winner        String?  // "USER", "AGENT", or "DRAW"
+  reasoning     String?  @db.Text // AI 的技术总结或胜负点评
+  status        String   @default("COMPLETED")
+  timestamp     DateTime @default(now())
+  
+  // 扩展字段 - 详细对战数据
+  marketType    String?  // "C10", "GOLD"
+  timeframe     String?  // "10M", "1H", "24H"
+  entryPrice    Float?   // 入场价格
+  exitPrice     Float?   // 出场价格（结算价格）
+  userStrategy  String?  @db.Text // 用户策略描述
+  agentStrategy String?  @db.Text // AI 策略描述
+  technicalData String?  @db.Text // JSON: RSI, MACD, 布林带等技术指标
+  priceChange   Float?   // 价格变化百分比
+  
+  // 赛季关联
+  seasonId      String?
+  season        Season?  @relation(fields: [seasonId], references: [id])
+  
+  // 锦标赛关联
+  tournamentId  String?
+  tournament    Tournament? @relation(fields: [tournamentId], references: [id])
+  
+  // 观战支持
+  isPublic      Boolean  @default(true) // 是否允许观战
+
+  @@index([userId, timestamp])
+  @@index([seasonId])
+  @@index([tournamentId])
+  @@index([isPublic, timestamp])
+}
+
+// 赛季模型
+model Season {
+  id          String    @id @default(uuid())
+  name        String    // "2026 Week 3", "January 2026"
+  type        String    // "WEEKLY", "MONTHLY"
+  startDate   DateTime
+  endDate     DateTime
+  status      String    @default("ACTIVE") // "UPCOMING", "ACTIVE", "ENDED"
+  prizePool   Float     @default(0) // 奖金池
+  
+  // 奖励配置 (JSON)
+  rewards     String?   @db.Text // {"1st": 5000, "2nd": 3000, "3rd": 1000, "top10": 500}
+  
+  battles     Battle[]
+  rankings    SeasonRanking[]
+  
+  createdAt   DateTime  @default(now())
+  
+  @@index([status, endDate])
+}
+
+// 赛季排名
+model SeasonRanking {
+  id          String   @id @default(uuid())
+  seasonId    String
+  season      Season   @relation(fields: [seasonId], references: [id])
+  userId      String
+  user        User     @relation(fields: [userId], references: [id])
+  
+  totalBattles Int     @default(0)
+  wins        Int      @default(0)
+  losses      Int      @default(0)
+  draws       Int      @default(0)
+  winRate     Float    @default(0)
+  totalPts    Float    @default(0) // 赛季内获得的积分
+  rank        Int?
+  
+  rewardClaimed Boolean @default(false)
+  rewardAmount  Float?
+  
+  updatedAt   DateTime @updatedAt
+  
+  @@unique([seasonId, userId])
+  @@index([seasonId, totalPts])
+}
+
+// 锦标赛/挑战赛
+model Tournament {
+  id          String    @id @default(uuid())
+  name        String
+  description String?   @db.Text
+  type        String    // "DAILY_CHALLENGE", "WEEKEND_CUP", "CHAMPIONSHIP"
+  
+  startDate   DateTime
+  endDate     DateTime
+  status      String    @default("UPCOMING") // "UPCOMING", "ACTIVE", "ENDED"
+  
+  entryFee    Float     @default(0) // 报名费（PTS）
+  prizePool   Float     @default(0)
+  maxPlayers  Int       @default(100)
+  minLevel    String?   // 最低等级要求 "ROOKIE", "STANDARD", "MASTER"
+  
+  // 规则配置
+  rules       String?   @db.Text // JSON: 赛制规则
+  rewards     String?   @db.Text // JSON: 奖励分配
+  
+  battles     Battle[]
+  participants TournamentParticipant[]
+  
+  createdAt   DateTime  @default(now())
+  
+  @@index([status, startDate])
+}
+
+// 锦标赛参与者
+model TournamentParticipant {
+  id           String     @id @default(uuid())
+  tournamentId String
+  tournament   Tournament @relation(fields: [tournamentId], references: [id])
+  userId       String
+  user         User       @relation(fields: [userId], references: [id])
+  
+  joinedAt     DateTime   @default(now())
+  wins         Int        @default(0)
+  losses       Int        @default(0)
+  score        Float      @default(0)
+  rank         Int?
+  eliminated   Boolean    @default(false)
+  
+  rewardClaimed Boolean   @default(false)
+  rewardAmount  Float?
+  
+  @@unique([tournamentId, userId])
+  @@index([tournamentId, score])
+}
+
+model MarketIndex {
+  id        String   @id @default(uuid())
+  type      String   // "C10", "GOLD", "MIXED"
+  value     Float
+  change24h Float?   // 24小时涨跌幅
+  timestamp DateTime @default(now())
+
+  @@index([type, timestamp])
+}
+
+// 链上交易记录
+model Transaction {
+  id          String    @id @default(uuid())
+  userId      String
+  user        User      @relation(fields: [userId], references: [id])
+  type        String    // "DEPOSIT", "WITHDRAW"
+  amount      Float
+  token       String    @default("ETH") // "ETH", "USDT", "USDC"
+  txHash      String    @unique
+  status      String    @default("PENDING") // "PENDING", "CONFIRMED", "FAILED"
+  createdAt   DateTime  @default(now())
+  confirmedAt DateTime?
+
+  @@index([userId, createdAt])
+}
+
+enum MarketStatus {
+  ACTIVE
+  LOCKED
+  RESOLVED
+}
+
+enum MarketOutcome {
+  YES
+  NO
+}
+
+// 系统配置表（用于存储 RPC 节点等可动态配置的设置）
+model SystemConfig {
+  id        String   @id @default(uuid())
+  key       String   @unique  // 配置键，如 "rpc_nodes", "ai_model"
+  value     String   @db.Text // JSON 格式的配置值
+  updatedAt DateTime @updatedAt
+  createdAt DateTime @default(now())
+}
+
+// ============================================
+// 回合制预测系统
+// ============================================
+
+// 回合模型
+model Round {
+  id            String      @id @default(uuid())
+  roundNumber   Int         // 回合序号 #74869
+  category      String      @default("C10") // "C10" 或 "GOLD"
+  
+  // 时间
+  startTime     DateTime    // 回合开始时间
+  endTime       DateTime    // 回合结束时间
+  lockTime      DateTime    // 锁定时间（禁止下注）
+  
+  // 价格
+  openPrice     Float?      // 开盘价（回合开始时的指数）
+  closePrice    Float?      // 收盘价（回合结束时的指数）
+  highPrice     Float?      // 最高价
+  lowPrice      Float?      // 最低价
+  
+  // 状态
+  status        RoundStatus @default(BETTING) // BETTING, LOCKED, SETTLING, SETTLED
+  result        RoundResult? // LONG_WIN, SHORT_WIN, DRAW
+  
+  // 资金池
+  longPool      Float       @default(0) // 看涨资金池
+  shortPool     Float       @default(0) // 看跌资金池
+  longBetCount  Int         @default(0) // 看涨下注人数
+  shortBetCount Int         @default(0) // 看跌下注人数
+  
+  // 关联
+  liquidityPool LiquidityPool?  // AMM 流动性池（一对一）
+  ammTrades     AMMTrade[]      // 该回合的所有交易
+  
+  createdAt     DateTime    @default(now())
+  
+  @@unique([category, roundNumber]) // 每个类别内回合号唯一
+  @@index([status, endTime])
+  @@index([category, roundNumber])
+}
+
+// 指数权重配置（市值加权）
+model IndexWeight {
+  id          String   @id @default(uuid())
+  category    String   @default("C10") // "C10"
+  symbol      String   // "BTC", "ETH", "SOL"...
+  weight      Float    // 权重 0.40 = 40%
+  supply      Float?   // 流通量（可选，用于动态计算）
+  isActive    Boolean  @default(true)
+  updatedAt   DateTime @updatedAt
+  
+  @@unique([category, symbol])
+  @@index([category, isActive])
+}
+
+// 回合状态枚举
+enum RoundStatus {
+  BETTING   // 下注阶段
+  LOCKED    // 锁定阶段（Setting...）
+  SETTLING  // 结算中
+  SETTLED   // 已结算
+}
+
+// 回合结果枚举
+enum RoundResult {
+  LONG_WIN  // 看涨方获胜（YES）
+  SHORT_WIN // 看跌方获胜（NO）
+  DRAW      // 平局
+}
+
+// ============================================
+// 市场快照（用于结果复盘）
+// ============================================
+
+// 市场快照表
+model MarketSnapshot {
+  id            String   @id @default(uuid())
+  marketId      String
+  market        Market   @relation(fields: [marketId], references: [id], onDelete: Cascade)
+  
+  snapshotType  String   // "START" | "END" | "SETTLEMENT"
+  timestamp     DateTime @default(now())
+  
+  // 指数值（6位小数精度）
+  indexValue    Decimal  @db.Decimal(18, 6)
+  
+  // 成分币价格快照（JSON）
+  components    Json     // { "BTC": 43250.123456, "ETH": 2650.789012, ... }
+  
+  // 公式参数（JSON，可选）
+  formulaParams Json?    // { "divisor": 1000000, "totalMarketCap": 1234567890.123456, "weights": {...} }
+  
+  createdAt     DateTime @default(now())
+  
+  @@index([marketId, snapshotType])
+  @@index([marketId, timestamp])
+}
+
+// ============================================
+// 智能合约配置管理
+// ============================================
+
+// 合约配置表
+model ContractConfig {
+  id           String    @id @default(uuid())
+  
+  // 基本信息
+  name         String                     // 合约名称，如 "SuperoctopVault"
+  type         String                     // 合约类型: "vault", "prediction", "oracle", "token"
+  version      String    @default("1.0.0") // 合约版本号
+  
+  // 链信息
+  chainId      Int                        // 链 ID: 11155111 (Sepolia), 8453 (Base), etc.
+  chainName    String                     // 链名称: "Sepolia", "Base", "Arbitrum"
+  
+  // 合约信息
+  address      String                     // 合约地址
+  abi          String?   @db.Text         // ABI JSON (可选，支持从区块浏览器获取)
+  
+  // 状态控制
+  isActive     Boolean   @default(true)   // 是否启用
+  isPrimary    Boolean   @default(false)  // 是否为该类型的主合约
+  
+  // 部署信息
+  deployedAt   DateTime?                  // 部署时间
+  deployTxHash String?                    // 部署交易哈希
+  deployer     String?                    // 部署者地址
+  
+  // 元数据
+  metadata     String?   @db.Text         // JSON: 额外配置信息
+  notes        String?   @db.Text         // 备注说明
+  
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  
+  @@unique([type, chainId, isPrimary], map: "contract_type_chain_primary") // 每个链每种类型只有一个主合约
+  @@index([type, chainId])
+  @@index([isActive])
+  @@index([type, isActive, isPrimary])
+}
+
+// 合约部署历史
+model ContractDeployment {
+  id           String    @id @default(uuid())
+  configId     String                     // 关联的 ContractConfig ID
+  
+  // 部署信息
+  chainId      Int
+  address      String
+  txHash       String
+  deployer     String
+  blockNumber  Int?
+  gasUsed      String?
+  
+  // 状态
+  status       String    @default("PENDING") // "PENDING", "SUCCESS", "FAILED"
+  errorMessage String?   @db.Text
+  
+  createdAt    DateTime  @default(now())
+  
+  @@index([configId])
+  @@index([status])
+}
+
+// ============================================
+// AMM 预测市场系统
+// ============================================
+
+// AMM 流动性池
+model LiquidityPool {
+  id               String   @id @default(uuid())
+  roundId          String   @unique
+  round            Round    @relation(fields: [roundId], references: [id])
+  
+  // 虚拟流动性（CPMM 核心）
+  yesReserve       Float    // x：YES 虚拟储备
+  noReserve        Float    // y：NO 虚拟储备
+  kConstant        Float    // k = x * y（恒定乘积）
+  
+  // 初始流动性
+  initialLiquidity Float    @default(10000)
+  
+  // 当前价格缓存（方便查询）
+  yesPrice         Float    @default(0.5)
+  noPrice          Float    @default(0.5)
+  
+  // 统计
+  totalVolume      Float    @default(0)  // 总交易量
+  totalFees        Float    @default(0)  // 累计手续费
+  tradeCount       Int      @default(0)  // 交易次数
+  
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+  
+  trades           AMMTrade[]
+}
+
+// 用户持仓
+model Position {
+  id               String   @id @default(uuid())
+  userId           String
+  user             User     @relation(fields: [userId], references: [id])
+  roundId          String
+  
+  // 持仓方向
+  side             PositionSide  // YES 或 NO
+  
+  // 份额与成本
+  shares           Float    // 持有份额数量
+  avgCost          Float    // 平均成本价（每份）
+  totalCost        Float    // 总成本（PTS）
+  
+  // 状态
+  status           PositionStatus @default(OPEN)
+  
+  // 平仓信息
+  closedShares     Float    @default(0)  // 已平仓份额
+  closedAt         DateTime?
+  exitPrice        Float?   // 平仓均价
+  realizedPnL      Float?   // 已实现盈亏
+  
+  // 结算信息
+  settledAt        DateTime?
+  settlementPayout Float?   // 结算派彩
+  
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+  
+  @@unique([userId, roundId, side])
+  @@index([userId, status])
+  @@index([roundId, side])
+}
+
+// AMM 交易记录（用于画 K 线）
+model AMMTrade {
+  id               String   @id @default(uuid())
+  poolId           String
+  pool             LiquidityPool @relation(fields: [poolId], references: [id])
+  roundId          String
+  round            Round    @relation(fields: [roundId], references: [id])
+  userId           String
+  user             User     @relation(fields: [userId], references: [id])
+  
+  // 交易信息
+  tradeType        TradeType    // BUY 或 SELL
+  side             PositionSide // YES 或 NO
+  shares           Float        // 交易份额
+  amount           Float        // 交易金额（PTS）
+  price            Float        // 成交均价
+  fee              Float        // 手续费
+  
+  // 交易后状态（用于 K 线）
+  yesPriceAfter    Float    // 交易后 YES 价格
+  noPriceAfter     Float    // 交易后 NO 价格
+  yesReserveAfter  Float    // 交易后 YES 储备
+  noReserveAfter   Float    // 交易后 NO 储备
+  
+  createdAt        DateTime @default(now())
+  
+  @@index([roundId, createdAt])
+  @@index([poolId, createdAt])
+  @@index([userId, createdAt])
+}
+
+// K 线数据（聚合后）
+model PriceCandle {
+  id               String   @id @default(uuid())
+  roundId          String
+  
+  // 时间区间
+  interval         String   // "1s", "5s", "1m"
+  startTime        DateTime
+  endTime          DateTime
+  
+  // OHLCV 数据（YES 价格）
+  open             Float
+  high             Float
+  low              Float
+  close            Float
+  volume           Float    // 交易量（PTS）
+  tradeCount       Int      // 交易笔数
+  
+  createdAt        DateTime @default(now())
+  
+  @@unique([roundId, interval, startTime])
+  @@index([roundId, interval, startTime])
+}
+
+// 持仓方向
+enum PositionSide {
+  YES
+  NO
+}
+
+// 持仓状态
+enum PositionStatus {
+  OPEN      // 持仓中
+  CLOSED    // 已平仓
+  SETTLED   // 已结算（回合结束）
+}
+
+// 交易类型
+enum TradeType {
+  BUY       // 买入
+  SELL      // 卖出
+}
+
+// ============================================
+// 推荐奖励系统
+// ============================================
+
+model ReferralReward {
+  id          String   @id @default(uuid())
+  referrerId  String   // 推荐人 ID
+  referrer    User     @relation("ReferrerRewards", fields: [referrerId], references: [id])
+  refereeId   String   // 被推荐人 ID
+  referee     User     @relation("RefereeRewards", fields: [refereeId], references: [id])
+  amount      Float    // 奖励金额
+  type        String   // SIGNUP_BONUS, ACTIVITY_BONUS, FIRST_BET_BONUS
+  description String?  // 奖励描述
+  createdAt   DateTime @default(now())
+
+  @@index([referrerId, createdAt])
+  @@index([refereeId])
+}
+
+// ============================================
+// 通知系统
+// ============================================
+
+model Notification {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  type      String   // BET_WIN, BET_LOSE, REFERRAL, BATTLE, SYSTEM, REWARD
+  title     String
+  content   String
+  data      String?  @db.Text // JSON 格式的额外数据
+  isRead    Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@index([userId, isRead, createdAt])
+  @@index([userId, createdAt])
+}
+
+// ============================================
+// 电竞数据系统
+// ============================================
+
+// 电竞队伍
+model EsportsTeam {
+  id           String   @id @default(uuid())
+  externalId   String   @unique // 外部 API ID
+  name         String
+  shortName    String?  // 缩写，如 "BLG", "JDG"
+  logo         String?  // 队伍 Logo URL
+  region       String?  // 地区: "CN", "KR", "EU", "NA"
+  game         String   // 游戏: "LOL", "DOTA2", "CS2"
+  
+  // 统计
+  winRate      Float?
+  ranking      Int?
+  
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  
+  // 关联比赛
+  homeMatches  EsportsMatch[] @relation("HomeTeam")
+  awayMatches  EsportsMatch[] @relation("AwayTeam")
+  
+  @@index([game])
+  @@index([region, game])
+}
+
+// 电竞比赛
+model EsportsMatch {
+  id            String   @id @default(uuid())
+  externalId    String   @unique // 外部 API ID
+  
+  // 游戏和联赛
+  game          String   // "LOL", "DOTA2", "CS2"
+  league        String   // 联赛名称: "LPL", "LCK", "TI", "Major"
+  leagueLogo    String?  // 联赛 Logo
+  tournament    String?  // 具体赛事: "LPL Spring 2026"
+  
+  // 队伍
+  homeTeamId    String
+  homeTeam      EsportsTeam @relation("HomeTeam", fields: [homeTeamId], references: [id])
+  awayTeamId    String
+  awayTeam      EsportsTeam @relation("AwayTeam", fields: [awayTeamId], references: [id])
+  
+  // 比赛信息
+  bestOf        Int      @default(1) // BO1, BO3, BO5
+  scheduledAt   DateTime // 预定开始时间
+  startedAt     DateTime? // 实际开始时间
+  endedAt       DateTime? // 结束时间
+  
+  // 状态
+  status        EsportsMatchStatus @default(UPCOMING)
+  
+  // 比分
+  homeScore     Int      @default(0)
+  awayScore     Int      @default(0)
+  
+  // 赔率
+  homeOdds      Float?   // 主队赔率
+  awayOdds      Float?   // 客队赔率
+  drawOdds      Float?   // 平局赔率（某些游戏可能有）
+  
+  // 直播信息
+  streamUrl     String?  // 直播链接
+  
+  // 预测统计
+  homeBetPool   Float    @default(0) // 主队下注池
+  awayBetPool   Float    @default(0) // 客队下注池
+  
+  // 数据来源
+  source        String   @default("manual") // "riot", "opendota", "pandascore", "manual"
+  
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  
+  // 关联
+  bets          EsportsBet[]
+  
+  @@index([game, status])
+  @@index([status, scheduledAt])
+  @@index([game, league, scheduledAt])
+}
+
+// 电竞比赛状态
+enum EsportsMatchStatus {
+  UPCOMING    // 即将开始
+  LIVE        // 直播中
+  FINISHED    // 已结束
+  CANCELLED   // 已取消
+  POSTPONED   // 已推迟
+}
+
+// 电竞下注
+model EsportsBet {
+  id          String   @id @default(uuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id])
+  matchId     String
+  match       EsportsMatch @relation(fields: [matchId], references: [id])
+  
+  // 下注信息
+  prediction  String   // "HOME", "AWAY", "DRAW"
+  amount      Float    // 下注金额
+  odds        Float    // 锁定赔率
+  
+  // 状态
+  status      String   @default("PENDING") // "PENDING", "WON", "LOST", "CANCELLED", "REFUNDED"
+  payout      Float?   // 派彩金额
+  settledAt   DateTime?
+  
+  createdAt   DateTime @default(now())
+  
+  @@index([userId, status])
+  @@index([matchId, status])
+}
+
+// ==========================================
+// 足球赛事模型
+// ==========================================
+
+model FootballMatch {
+  id              String   @id // football-{fixtureId}
+  fixtureId       Int      @unique // API-Football fixture ID
+  
+  // 联赛信息
+  league          String   // 联赛名称: "Premier League", "La Liga"
+  leagueLogo      String?  // 联赛 Logo
+  leagueCountry   String?  // 国家
+  round           String?  // 轮次: "Regular Season - 20"
+  
+  // 主队信息
+  homeTeamId      Int
+  homeTeamName    String
+  homeTeamLogo    String?
+  
+  // 客队信息
+  awayTeamId      Int
+  awayTeamName    String
+  awayTeamLogo    String?
+  
+  // 比赛信息
+  scheduledAt     DateTime // 预定开始时间
+  venue           String?  // 球场
+  
+  // 状态
+  status          String   @default("UPCOMING") // "UPCOMING", "LIVE", "HALFTIME", "FINISHED", "POSTPONED", "CANCELLED"
+  elapsed         Int?     // 比赛进行时间（分钟）
+  
+  // 比分
+  homeScore       Int      @default(0)
+  awayScore       Int      @default(0)
+  
+  // 赔率（三向投注）
+  homeOdds        Float    @default(2.0)  // 主胜赔率
+  drawOdds        Float    @default(3.2)  // 平局赔率
+  awayOdds        Float    @default(2.0)  // 客胜赔率
+  tvChannels      Json?    @db.Json // 直播频道列表 [{ name: "Twitch BR" }]
+  
+  // 预测统计
+  homeBetPool     Float    @default(0) // 主胜下注池
+  drawBetPool     Float    @default(0) // 平局下注池
+  awayBetPool     Float    @default(0) // 客胜下注池
+  
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  
+  // 关联
+  bets            FootballBet[]
+  
+  @@index([status, scheduledAt])
+  @@index([league, scheduledAt])
+}
+
+// 足球下注
+model FootballBet {
+  id          String   @id @default(uuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id])
+  matchId     String
+  match       FootballMatch @relation(fields: [matchId], references: [id])
+  
+  // 下注信息
+  prediction  String   // "HOME", "DRAW", "AWAY"
+  amount      Float    // 下注金额
+  odds        Float    // 锁定赔率
+  
+  // 状态
+  status      String   @default("PENDING") // "PENDING", "WON", "LOST", "CANCELLED", "REFUNDED"
+  payout      Float?   // 派彩金额
+  settledAt   DateTime?
+  
+  createdAt   DateTime @default(now())
+  
+  @@index([userId, status])
+  @@index([matchId, status])
+}

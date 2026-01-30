@@ -1,0 +1,53 @@
+{
+  "name": "server",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "start": "nest start",
+    "start:dev": "npx ts-node --transpile-only src/main.ts",
+    "build": "nest build",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "@nestjs/axios": "^4.0.1",
+    "@nestjs/common": "^11.1.12",
+    "@nestjs/config": "^4.0.2",
+    "@nestjs/core": "^11.1.12",
+    "@nestjs/platform-express": "^11.1.12",
+    "@nestjs/platform-socket.io": "^11.1.12",
+    "@nestjs/schedule": "^6.1.0",
+    "@nestjs/swagger": "^11.2.5",
+    "@nestjs/throttler": "^6.5.0",
+    "@nestjs/websockets": "^11.1.12",
+    "@prisma/adapter-pg": "^7.3.0",
+    "@privy-io/react-auth": "^3.10.2",
+    "@react-native-async-storage/async-storage": "^1.24.0",
+    "@types/jsonwebtoken": "^9.0.10",
+    "axios": "^1.13.3",
+    "decimal.js": "^10.6.0",
+    "dotenv": "^17.2.3",
+    "ethers": "^6.16.0",
+    "helmet": "^8.1.0",
+    "jsonwebtoken": "^9.0.3",
+    "pg": "^8.17.2",
+    "react-error-boundary": "^6.1.0",
+    "reflect-metadata": "^0.2.2",
+    "rxjs": "^7.8.2",
+    "socket.io": "^4.8.3",
+    "technicalindicators": "^3.1.0",
+    "tsconfig-paths": "^4.2.0",
+    "viem": "^2.21.0"
+  },
+  "devDependencies": {
+    "@nestjs/cli": "^11.0.16",
+    "@prisma/client": "^6.19.2",
+    "concurrently": "^9.2.1",
+    "prisma": "^6.19.2",
+    "ts-node": "^10.9.2"
+  }
+}

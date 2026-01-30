@@ -1,0 +1,148 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: dark;
+}
+
+html {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+  overflow-x: hidden; /* 强制禁止横向溢出 */
+}
+
+html::-webkit-scrollbar {
+  display: none;
+}
+
+body {
+  @apply text-white antialiased;
+  background-color: transparent;
+  font-family: var(--font-space-grotesk), 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  overflow-x: hidden; /* 强制禁止横向溢出 */
+  -webkit-overflow-scrolling: touch; /* 优化 iOS 滚动流畅度 */
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+/* 自定义径向渐变类 */
+.bg-radial-gradient {
+  background: radial-gradient(circle at center, var(--tw-gradient-from) 0%, var(--tw-gradient-via) 50%, var(--tw-gradient-to) 100%);
+}
+
+.page-container {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 24px 16px 48px;
+}
+
+.glass-card {
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 16px;
+  backdrop-filter: blur(12px);
+}
+
+.gradient-btn {
+  background: linear-gradient(135deg, #8b5cf6, #ec4899);
+  color: #fff;
+  border-radius: 12px;
+  padding: 12px 18px;
+  font-weight: 700;
+  transition: opacity 0.2s ease, transform 0.2s ease;
+}
+
+.gradient-btn:hover {
+  opacity: 0.9;
+  transform: translateY(-1px);
+}
+
+.vertical-text {
+  writing-mode: vertical-rl;
+}
+
+body::-webkit-scrollbar {
+  display: none; /* Chrome, Safari and Opera */
+}
+
+/* 渐变文字效果 */
+.gradient-text {
+  @apply bg-clip-text text-transparent bg-gradient-to-r from-orange-400 to-orange-600;
+  filter: drop-shadow(0 0 10px rgba(251, 146, 60, 0.3));
+}
+
+/* 极简玻璃卡片 */
+.glass {
+  @apply bg-white/[0.03] border border-white/5 backdrop-blur-md;
+}
+
+/* --- 核心动画集 --- */
+
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+@keyframes float {
+  0%, 100% { transform: translateY(0px) rotate(0deg); }
+  50% { transform: translateY(-15px) rotate(2deg); }
+}
+
+@keyframes pulse-glow {
+  0%, 100% { opacity: 0.5; transform: scale(1); }
+  50% { opacity: 1; transform: scale(1.05); }
+}
+
+@keyframes chain-flow {
+  0% { transform: translateY(0); }
+  100% { transform: translateY(-1200px); }
+}
+
+@keyframes twist-ccw {
+  0%, 100% { transform: rotate(0deg); }
+  50% { transform: rotate(-25deg); }
+}
+
+@keyframes gradient-shift {
+  0% { stop-color: #4deeea; }
+  20% { stop-color: #74ee15; }
+  40% { stop-color: #ffe700; }
+  60% { stop-color: #f000ff; }
+  80% { stop-color: #001eff; }
+  100% { stop-color: #4deeea; }
+}
+
+@keyframes spin-reverse {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(-360deg); }
+}
+
+/* --- 实用动画类 --- */
+.animate-shimmer {
+  animation: shimmer 3s infinite linear;
+}
+
+.animate-spin-reverse {
+  animation: spin-reverse 1.5s linear infinite;
+}
+
+.animate-float {
+  animation: float 4s ease-in-out infinite;
+}
+
+.animate-pulse-glow {
+  animation: pulse-glow 2s ease-in-out infinite;
+}
+
+.animate-chain-flow {
+  animation: chain-flow 3s infinite linear;
+}
+
+.animate-twist-ccw {
+  animation: twist-ccw 4s ease-in-out infinite;
+}
+
+/* 给 SVG 渐变点增加动态变色 */
+.stop-animate-1 { animation: gradient-shift 5s infinite alternate; }
+.stop-animate-2 { animation: gradient-shift 5s infinite alternate-reverse; }
