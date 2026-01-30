@@ -1,0 +1,62 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model License {
+  id            String    @id @default(uuid())
+  key           String    @unique  // AIXL-XXXX-XXXX-XXXX
+  customerId    String
+  customerName  String
+  projectName   String    @default("AixL")
+  
+  // 授权配置
+  expiresAt     DateTime
+  maxServers    Int       @default(1)
+  features      Json      @default("{}")
+  
+  // 绑定信息
+  fingerprints  String[]
+  
+  // 状态
+  isActive      Boolean   @default(true)
+  isRevoked     Boolean   @default(false)
+  revokeReason  String?
+  
+  // 时间
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  
+  // 关联
+  heartbeats    Heartbeat[]
+  
+  @@index([key])
+  @@index([customerId])
+}
+
+model Heartbeat {
+  id          String   @id @default(uuid())
+  licenseId   String
+  license     License  @relation(fields: [licenseId], references: [id], onDelete: Cascade)
+  
+  fingerprint String
+  ipAddress   String
+  version     String
+  serverInfo  Json?
+  
+  createdAt   DateTime @default(now())
+  
+  @@index([licenseId])
+  @@index([createdAt])
+}
+
+model AdminUser {
+  id           String   @id @default(uuid())
+  username     String   @unique
+  passwordHash String
+  createdAt    DateTime @default(now())
+}
