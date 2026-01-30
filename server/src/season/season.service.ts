@@ -319,9 +319,9 @@ export class SeasonService {
    */
   async createSeason(data: { 
     name: string; 
-    description?: string; 
     startDate: string; 
     endDate: string; 
+    prizePool?: number;
     rewards?: any 
   }) {
     const startDate = new Date(data.startDate);
@@ -338,12 +338,11 @@ export class SeasonService {
     const season = await this.prisma.season.create({
       data: {
         name: data.name,
-        description: data.description,
         type: 'CUSTOM',
         startDate,
         endDate,
         status,
-        prizePool: 0,
+        prizePool: data.prizePool ?? 0,
         rewards: data.rewards ? JSON.stringify(data.rewards) : null,
       }
     });
@@ -357,18 +356,18 @@ export class SeasonService {
    */
   async updateSeason(id: string, data: { 
     name?: string; 
-    description?: string; 
     startDate?: string; 
-    endDate?: string 
+    endDate?: string;
+    prizePool?: number;
   }) {
     const season = await this.prisma.season.findUnique({ where: { id } });
     if (!season) throw new NotFoundException('Season not found');
 
     const updateData: any = {};
     if (data.name) updateData.name = data.name;
-    if (data.description !== undefined) updateData.description = data.description;
     if (data.startDate) updateData.startDate = new Date(data.startDate);
     if (data.endDate) updateData.endDate = new Date(data.endDate);
+    if (data.prizePool !== undefined) updateData.prizePool = data.prizePool;
 
     const updated = await this.prisma.season.update({
       where: { id },
